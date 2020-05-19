@@ -1,10 +1,14 @@
 import configparser as cp
 import logging
+from collections import namedtuple
 from pathlib import Path
 
 import h5py
 import numpy as np
+import pandas as pd
 from torch.utils.data import Dataset
+
+viirs_batch = namedtuple('viirs_batch', ['viirs', 'diurnal'])
 
 
 class WildFireDataset(Dataset):
@@ -63,27 +67,38 @@ class VIIRSDataset(Dataset):
             np.random.shuffle(indexes)
             indexes = indexes[:load_records]
             indexes.sort()
-            print(indexes)
             fields = list(h5_ptr)
-            self.data = {}
-            self.data["timestep_observed"] = np.tile([0, -1, -2, -3, -4], load_records).astype(int)
-            self.data["timestep_target"] = np.tile([1, 2], load_records).astype(int)
+            self.data = {"timestep_observed": np.tile([0, -1, -2, -3, -4], load_records).astype(int),
+                         "timestep_target": np.tile([1, 2], load_records).astype(int)}
 
             for f in fields:
-
                 self.data[f] = h5_ptr[f][indexes]
                 if f in ["target", "observed"]:
                     self.data[f] = self.data[f].reshape(-1, 30, 30)
+                if f == "datetime":
+                    self.data["datetime"] = pd.to_datetime(self.data["datetime"])
+
         self.data["viirs"] = np.concatenate((self.data["observed"], self.data["target"]), axis=0)
         self.data["timestep"] = np.concatenate((self.data["timestep_observed"], self.data["timestep_target"]), axis=0)
-        self.data["indexes"] = np.concatenate((np.repeat(indexes, 5),
-                                               np.repeat(indexes, 2))).astype(int)
+        self.data["indexes"] = np.concatenate((np.repeat(indexes, 5), np.repeat(indexes, 2))).astype(int)
+        self.data["hours"] = self.data["datetime"].hour
+        observed_diurnality = np.zeros((load_records, 5), dtype=int)
+        observed_diurnality[:, 0] = (self.data["hours"] <= 12).astype(int)
+        observed_diurnality[:, 1] = 1 - observed_diurnality[:, 0]
+        observed_diurnality[:, 2] = 1 - observed_diurnality[:, 1]
+        observed_diurnality[:, 3] = 1 - observed_diurnality[:, 2]
+        observed_diurnality[:, 4] = 1 - observed_diurnality[:, 3]
+
+        target_diurnality = np.zeros((load_records, 2), dtype=int)
+        target_diurnality[:, 0] = 1 - observed_diurnality[:, 0]
+        target_diurnality[:, 1] = 1 - target_diurnality[:, 0]
+        self.data["diurnal"] = np.concatenate((observed_diurnality.flatten(), target_diurnality.flatten()))
 
     def __len__(self):
         return len(self.data['viirs'])
 
-    def __getitem__(self, item):
-        return self.data['viirs'][item, ...].astype(np.float32)
+    def __getitem__(self, item) -> viirs_batch:
+        return viirs_batch(viirs=self.data['viirs'][item, ...].astype(np.float32), diurnal=self.data['diurnal'][item])
 
     @property
     def indexes(self):

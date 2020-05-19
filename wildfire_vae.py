@@ -49,12 +49,15 @@ def main(args):
         epoch_loss = 0.
         # do a training epoch over each mini-batch x returned
         # by the data loader
-        for x in train_loader:
+        for viirs_batch in train_loader:
             # if on GPU put mini-batch into CUDA memory
+            viirs = viirs_batch.viirs
+            diurnal = viirs_batch.diurnal
             if args.cuda:
-                x = x.cuda()
+                viirs = viirs.cuda()
+                diurnal = diurnal.cuda()
             # do ELBO gradient and accumulate loss
-            epoch_loss += svi.step(x)
+            epoch_loss += svi.step(viirs)
 
         # report training diagnostics
         normalizer_train = len(train_loader.dataset)
