@@ -11,11 +11,10 @@ class WildFireData(Dataset):
             for k in list(f):
                 self.data[k] = f[k][:]
 
-        limit = 5000
-        self.data['observed'] = self.data['observed'][:limit]
-        self.data['target'] = self.data['target'][:limit]
-        self.data['land_cover'] = self.data['land_cover'][:limit]
-        self.data['meteorology'] = self.data['meteorology'][:limit]
+        self.data['observed'] = self.data['observed']
+        self.data['target'] = self.data['target']
+        self.data['land_cover'] = self.data['land_cover']
+        self.data['meteorology'] = self.data['meteorology']
 
         self.obsv_tagt_transforms = obsv_tagt_transforms
         self.land_transforms = land_transforms
