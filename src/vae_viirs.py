@@ -11,6 +11,7 @@ class Encoder(nn.Module):
     def __init__(self, z_dim, hidden_dim, image_dimension=(30, 30)):
         super().__init__()
         # setup the three linear transformations used
+        self.z_dim = z_dim
         self.image_flatten_dim = image_dimension[0] * image_dimension[1]
         self.fc1 = nn.Linear(self.image_flatten_dim, hidden_dim)
         self.fc21 = nn.Linear(hidden_dim, z_dim)
@@ -22,12 +23,22 @@ class Encoder(nn.Module):
         # define the forward computation on the image x
         # first shape the mini-batch to have pixels in the rightmost dimension
         x = x.reshape(-1, self.image_flatten_dim)
+        # if torch.sum(x) == 0:
+        #     return torch.zeros(self.z_dim), 1 * torch.ones(self.z_dim)
         # then compute the hidden units
         hidden = self.softplus(self.fc1(x))
         # then return a mean vector and a (positive) square root covariance
         # each of size batch_size x z_dim
+
         z_loc = self.fc21(hidden)
         z_scale = torch.exp(self.fc22(hidden))
+        if torch.any(torch.isnan(z_loc)):
+            raise ValueError(f"z_loc has nan")
+        if torch.any(torch.isnan(z_scale)):
+            raise ValueError(f"z_scale has nan")
+        # print((torch.sum(x, dim=1) > 0).unsqueeze(-1).shape, z_loc.shape)
+        z_loc = torch.where((torch.sum(x, dim=1) > 0).unsqueeze(-1), z_loc, torch.zeros_like(z_loc))
+        # z_scale = torch.where((torch.sum(x, dim=1) > 0).unsqueeze(-1), z_scale, 1e-3 * torch.ones_like(z_scale))
         return z_loc, z_scale
 
 

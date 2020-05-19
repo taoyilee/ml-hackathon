@@ -17,6 +17,7 @@ def test_data_loader():
 
 @pytest.mark.parametrize("load_records", range(1, 10))
 def test_data_lenth(load_records):
+    np.random.seed(0)
     data_loader = VIIRSDataset(load_records=load_records)
     assert len(data_loader) == 7 * load_records
 
@@ -29,23 +30,31 @@ def test_get_item(load_records, idx):
 
 def test_correct_reshape():
     n = 40
+    np.random.seed(0)
     viirs_data_loader = VIIRSDataset(load_records=n)
-    wildfire_data_loader = WildFireDataset(load_records=n)
+
+    np.random.seed(0)
+    indexes = np.arange(10000)
+    np.random.shuffle(indexes)
+    indexes = indexes[:n]
+    indexes.sort()
+    wildfire_data_loader = WildFireDataset(load_records=indexes)
 
     expected = np.concatenate((wildfire_data_loader[:][0].reshape(-1, 30, 30),
-                               wildfire_data_loader[:][1].reshape(-1, 30, 30))
-                              , axis=0)
+                               wildfire_data_loader[:][1].reshape(-1, 30, 30)), axis=0)
     assert np.array_equal(np.array(viirs_data_loader[:]), expected)
 
 
 @pytest.mark.parametrize("idx", [0, 5])
 def test_non_zero(idx):
+    np.random.seed(0)
     viirs_data_loader = VIIRSDataset(load_records=100)
     assert np.any(np.array(viirs_data_loader[idx]))
 
 
-@pytest.mark.parametrize("idx", [1, 2, 3, 4])
+@pytest.mark.parametrize("idx", [2, 3, 4])
 def test_zero(idx):
+    np.random.seed(0)
     viirs_data_loader = VIIRSDataset(load_records=100)
     assert np.all(np.array(viirs_data_loader[idx]) == 0)
 
@@ -66,15 +75,16 @@ def test_timestep_shape():
 
 
 def test_indexes():
+    np.random.seed(0)
     viirs_data_loader = VIIRSDataset(load_records=5)
-    assert np.array_equal(viirs_data_loader.indexes,
-                          np.array([0, 0, 0, 0, 0,
-                                    1, 1, 1, 1, 1,
-                                    2, 2, 2, 2, 2,
-                                    3, 3, 3, 3, 3,
-                                    4, 4, 4, 4, 4,
-                                    0, 0, 1, 1, 2, 2, 3, 3, 4, 4
-                                    ]).astype(int))
+
+    np.random.seed(0)
+    indexes = np.arange(10000)
+    np.random.shuffle(indexes)
+    indexes = indexes[:5]
+    indexes.sort()
+    expected = np.array(np.concatenate((np.repeat(indexes, 5), np.repeat(indexes, 2)))).astype(int)
+    assert np.array_equal(viirs_data_loader.indexes, expected)
 
 
 def test_timestep():

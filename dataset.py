@@ -26,7 +26,16 @@ class WildFireDataset(Dataset):
 
             self.data = {}
             for f in fields:
-                self.data[f] = h5_ptr[f][:load_records]
+                if isinstance(load_records, int):
+                    self.data[f] = h5_ptr[f][:load_records]
+                else:  # list or np.array
+                    self.original_indexes = list(load_records)
+                    self.data[f] = h5_ptr[f][self.original_indexes]
+
+    def get_by_original_indexes(self, index):
+        assert isinstance(index, int)
+        item = self.original_indexes.index(index)
+        return self.data['observed'][item, ...].astype(np.float32), self.data['target'][item, ...].astype(np.float32)
 
     def __len__(self):
         return len(self.data['observed'])
@@ -50,6 +59,11 @@ class VIIRSDataset(Dataset):
 
         with h5py.File(self.source_file, 'r') as h5_ptr:
             # ['datetime', 'land_cover', 'latitude', 'longitude', 'meteorology', 'observed', 'target']
+            indexes = np.arange(len(h5_ptr['observed']))
+            np.random.shuffle(indexes)
+            indexes = indexes[:load_records]
+            indexes.sort()
+            print(indexes)
             fields = list(h5_ptr)
             self.data = {}
             self.data["timestep_observed"] = np.tile([0, -1, -2, -3, -4], load_records).astype(int)
@@ -57,13 +71,13 @@ class VIIRSDataset(Dataset):
 
             for f in fields:
 
-                self.data[f] = h5_ptr[f][:load_records]
+                self.data[f] = h5_ptr[f][indexes]
                 if f in ["target", "observed"]:
                     self.data[f] = self.data[f].reshape(-1, 30, 30)
         self.data["viirs"] = np.concatenate((self.data["observed"], self.data["target"]), axis=0)
         self.data["timestep"] = np.concatenate((self.data["timestep_observed"], self.data["timestep_target"]), axis=0)
-        self.data["indexes"] = np.concatenate((np.repeat(np.arange(load_records), 5),
-                                               np.repeat(np.arange(load_records), 2))).astype(int)
+        self.data["indexes"] = np.concatenate((np.repeat(indexes, 5),
+                                               np.repeat(indexes, 2))).astype(int)
 
     def __len__(self):
         return len(self.data['viirs'])

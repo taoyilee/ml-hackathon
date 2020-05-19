@@ -1,6 +1,7 @@
-from pyro.distributions import Bernoulli
-from torch import tensor
 import pyro
+from pyro.distributions import Bernoulli,Normal
+from torch import tensor
+
 if __name__ == "__main__":
     pyro.enable_validation(True)
     d0 = Bernoulli(tensor([[0.3, 0.5], [0.6, 0.5]]))
@@ -16,3 +17,6 @@ if __name__ == "__main__":
     print(x)
     x = pyro.sample("x", d2)
     print(x)
+
+    x1 = pyro.sample("measurement", Normal(0, 0.75), obs=20.5)
+    print(x1)
