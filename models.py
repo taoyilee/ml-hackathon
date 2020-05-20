@@ -57,18 +57,18 @@ class GeneratorUNet(nn.Module):
         super(GeneratorUNet, self).__init__()
 
         self.down1 = UNetDown(in_channels, 256, normalize=False)
-        self.down2 = UNetDown(256, 512, dropout=0.5)
-        self.down3 = UNetDown(512, 512, dropout=0.5)
-        self.down4 = UNetDown(512, 512, normalize=False, dropout=0.5)
+        self.down2 = UNetDown(256, 512, dropout=0.25)
+        self.down3 = UNetDown(512, 512, dropout=0.25)
+        self.down4 = UNetDown(512, 512, normalize=False, dropout=0.25)
 
-        self.up1 = UNetUp(512, 512, dropout=0.5)
-        self.up2 = UNetUp(1024, 512, dropout=0.5)
+        self.up1 = UNetUp(512, 512, dropout=0.25)
+        self.up2 = UNetUp(1024, 512, dropout=0.25)
         self.up3 = UNetUp(1024, 256)
 
         self.final = nn.Sequential(
             nn.Upsample(scale_factor=2),
             nn.Conv2d(512, out_channels, 3, padding=1),
-            nn.Sigmoid(),
+            # nn.Sigmoid(),
         )
 
     def forward(self, x):

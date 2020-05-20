@@ -4,12 +4,19 @@ from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
 import h5py
 
+
 class WildFireData(Dataset):
     def __init__(self, data_path, target_hour, obsv_tagt_transforms, land_transforms, meteo_transforms):
         self.data = {}
         with h5py.File(data_path, 'r') as f:
             for k in list(f):
                 self.data[k] = f[k][:]
+
+        # limit = 1000
+        # self.data['observed'] = self.data['observed'][limit:limit+1000]
+        # self.data['target'] = self.data['target'][limit:limit+1000]
+        # self.data['land_cover'] = self.data['land_cover'][limit:limit+1000]
+        # self.data['meteorology'] = self.data['meteorology'][limit:limit+1000]
 
         self.data['observed'] = self.data['observed']
         self.data['target'] = self.data['target']
@@ -26,10 +33,16 @@ class WildFireData(Dataset):
 
     def __getitem__(self, idx):
         sample_observed = self.data['observed'][idx]
+        sample_observed[sample_observed == 1] = 255
+
         if self.target_hour == 12:
-            sample_target = self.data['target'][idx, 0][np.newaxis, :]
+            sample_target = self.data['target'][idx, 0]
+            sample_target[sample_target == 1] = 255
+            sample_target = sample_target[np.newaxis, :]
         else:
-            sample_target = self.data['target'][idx, 1][np.newaxis, :]
+            sample_target = self.data['target'][idx, 1]
+            sample_target[sample_target == 1] = 255
+            sample_target = sample_target[np.newaxis, :]
             sample_observed = np.concat([sample_observed, self.data['target'][idx, 0]])
 
         sample_land_cover = self.data['land_cover'][idx]
@@ -50,11 +63,12 @@ class WildFireData(Dataset):
         sample_target = self.obsv_tagt_transforms(sample_target)
         sample_land_cover = self.land_transforms(sample_land_cover)
         sample_meteorology = self.meteo_transforms(sample_meteorology)
+        sample_weight = sample_observed.sum() / 100 + 0.1
 
         X = torch.cat([sample_observed, sample_land_cover, sample_meteorology.float()], dim=0)
         y = sample_target
 
-        return X, y
+        return X, y, sample_weight
 
 
 def get_wild_fire_data(data_path, target_hour):
@@ -65,14 +79,14 @@ def get_wild_fire_data(data_path, target_hour):
     return WildFireData(data_path, target_hour, obsv_tagt_transforms, land_transforms, meteo_transforms)
 
 
-def get_data_loader(batch_size, target_hour):
+def get_data_loader(batch_size, target_hour, shuffle_training=True):
     train_data_path = 'uci_ml_hackathon_fire_dataset_2012-05-09_2013-01-01_10k_train.hdf5'
     train_data = get_wild_fire_data(train_data_path, target_hour)
 
     test_data_path = 'uci_ml_hackathon_fire_dataset_2013-01-01_2014-01-01_5k_test.hdf5'
     test_data = get_wild_fire_data(test_data_path, target_hour)
 
-    train_data_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
+    train_data_loader = DataLoader(train_data, batch_size=batch_size, shuffle=shuffle_training)
     test_data_loader = DataLoader(test_data, batch_size=batch_size, shuffle=False)
 
     return train_data_loader, test_data_loader
