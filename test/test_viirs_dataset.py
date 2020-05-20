@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 from torch.utils.data import Dataset
 
-from dataset import VIIRSDataset, WildFireDataset
+from src.data.dataset import VIIRSDataset, WildFireDataset
 
 
 @pytest.mark.slow

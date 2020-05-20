@@ -3,7 +3,7 @@
 
 from pathlib import Path
 
-from src.vae_plots import plot_trajectory
+from src.visualize.vae_plots import plot_trajectory
 
 if __name__ == '__main__':
     csv_path = Path("vae_results/VAE_viirs_embedding.csv")

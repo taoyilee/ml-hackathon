@@ -1,7 +1,7 @@
 import pytest
 from torch.utils.data import Dataset
 
-from dataset import WildFireDataset
+from src.data.dataset import WildFireDataset
 
 
 @pytest.mark.slow

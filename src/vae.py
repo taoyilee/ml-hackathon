@@ -5,15 +5,18 @@ from pyro.optim import Adam
 from torch import nn
 from torch.distributions import constraints as constraints
 
+from src.decoder import Decoder
+from src.encoder import Encoder
+
 
 class VAE(nn.Module):
-    def __init__(self, image_dim=(30, 30)):
+    def __init__(self, z_dim=2, image_dim=(30, 30)):
         super().__init__()
         self.image_flatten_dim = image_dim[0] * image_dim[1]
         adam_params = {"lr": 1e-3, "betas": (0.9, 0.999)}
         # self.optimizer = Adam(adam_params, clip_args={"clip_norm": 100.0})
         self.optimizer = Adam(adam_params)
-        self.z_dim = 50
+        self.z_dim = z_dim
         self.hidden_dim = 400
         self.encoder = Encoder(self.z_dim, self.hidden_dim)
         self.decoder = Decoder(self.z_dim, self.hidden_dim)
@@ -47,44 +50,3 @@ class VAE(nn.Module):
         z_loc_q, z_scale_q = self.encoder(observed_0, diurnality)
         pyro.sample("diurnal_ratio", dist.Beta(alpha_q, beta_q))
         pyro.sample("latent", dist.Normal(z_loc_q, z_scale_q).to_event(1))
-
-
-class Encoder(nn.Module):
-    def __init__(self, z_dim, hidden_dim, image_dimension=(30, 30)):
-        super().__init__()
-
-        self.z_dim = z_dim
-        self.image_flatten_dim = image_dimension[0] * image_dimension[1]
-        self.fc1_day = nn.Linear(self.image_flatten_dim, hidden_dim)
-        self.fc21_day = nn.Linear(hidden_dim, z_dim)
-        self.fc22_day = nn.Linear(hidden_dim, z_dim)
-
-        self.fc1_night = nn.Linear(self.image_flatten_dim, hidden_dim)
-        self.fc21_night = nn.Linear(hidden_dim, z_dim)
-        self.fc22_night = nn.Linear(hidden_dim, z_dim)
-
-        self.softplus = nn.Softplus()
-
-    def forward(self, observed_0, diurnality):
-        observed_0 = observed_0.reshape(-1, self.image_flatten_dim)
-        hidden = self.softplus(self.fc1_day(observed_0))
-        condition = (diurnality == 1).unsqueeze(-1)
-        z_loc = torch.where(condition, self.fc21_day(hidden), self.fc21_night(hidden))
-        z_scale = torch.exp(torch.where(condition, self.fc22_day(hidden), self.fc22_night(hidden)))
-        return z_loc, z_scale
-
-
-class Decoder(nn.Module):
-    def __init__(self, z_dim, hidden_dim, image_dimension=(30, 30)):
-        super().__init__()
-
-        self.image_flatten_dim = image_dimension[0] * image_dimension[1]
-        self.fc1 = nn.Linear(z_dim, hidden_dim)
-        self.fc21 = nn.Linear(hidden_dim, self.image_flatten_dim)
-
-        self.softplus = nn.Softplus()
-
-    def forward(self, z):
-        hidden = self.softplus(self.fc1(z))
-        loc_img = torch.sigmoid(self.fc21(hidden))
-        return loc_img

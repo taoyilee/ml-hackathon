@@ -1,7 +1,4 @@
 import pytest
-from torch.utils.data import Dataset
-
-from dataset import WildFireDataset
 
 
 def pytest_addoption(parser):
