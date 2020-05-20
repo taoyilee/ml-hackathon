@@ -84,6 +84,7 @@ class VIIRSDataset(Dataset):
         self.data["hours"] = self.data["datetime"].hour
         observed_diurnality = np.zeros((load_records, 5), dtype=int)
         observed_diurnality[:, 0] = (self.data["hours"] <= 12).astype(int)
+
         observed_diurnality[:, 1] = 1 - observed_diurnality[:, 0]
         observed_diurnality[:, 2] = 1 - observed_diurnality[:, 1]
         observed_diurnality[:, 3] = 1 - observed_diurnality[:, 2]
@@ -92,7 +93,11 @@ class VIIRSDataset(Dataset):
         target_diurnality = np.zeros((load_records, 2), dtype=int)
         target_diurnality[:, 0] = 1 - observed_diurnality[:, 0]
         target_diurnality[:, 1] = 1 - target_diurnality[:, 0]
-        self.data["diurnal"] = np.concatenate((observed_diurnality.flatten(), target_diurnality.flatten()))
+        self.data["diurnal"] = np.concatenate((observed_diurnality.flatten(), target_diurnality.flatten())).astype(
+            np.float32)
+        unique, count = np.unique(self.data["diurnal"], return_counts=True)
+        count = count / np.sum(count)
+        print({f"{u}: {c:.3f}" for u, c in zip(unique, count)})
 
     def __len__(self):
         return len(self.data['viirs'])
@@ -107,6 +112,10 @@ class VIIRSDataset(Dataset):
     @property
     def x(self):
         return self.data['viirs'].astype(np.float32)
+
+    @property
+    def diurnal(self):
+        return self.data['diurnal']
 
     @property
     def timestep(self):

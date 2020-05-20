@@ -8,6 +8,7 @@ import pandas as pd
 import torch
 from matplotlib import pyplot as plt, cm
 
+from dataset import VIIRSDataset
 from dataset import WildFireDataset
 
 
@@ -137,7 +138,8 @@ def viirs_tsne(vae=None, data_loader=None):
     This is used to generate a t-sne embedding of the vae
     """
     name = 'VAE'
-    z_loc, z_scale = vae.encoder(torch.tensor(data_loader.dataset.x).cuda())
+    viirs_dataset = data_loader.dataset  # type:VIIRSDataset
+    z_loc, z_scale = vae.encoder(torch.tensor(viirs_dataset.x).cuda(), torch.tensor(viirs_dataset.diurnal).cuda())
     plot_viirs_tsne(z_loc, data_loader.dataset.timestep, data_loader.dataset.indexes, name)
 
 
@@ -182,8 +184,7 @@ def plot_viirs_tsne(z_loc, timestep, index, name):
 
 def plot_trajectory(csv_path, output_path):
     df = pd.read_csv(csv_path, index_col=0, dtype={"index": int})
-    print(df.keys(), df.dtypes)
-    figure = plt.figure(figsize=(14, 12), num=0)
+    plt.figure(figsize=(14, 12), num=0)
     time_step = [-48, -36, -24, -12, 0, 12, 24]
     df = df.sample(frac=1)
     cmap = cm.get_cmap("coolwarm")
@@ -191,7 +192,7 @@ def plot_trajectory(csv_path, output_path):
              df[['-48_h_0', '-36_h_0', '-24_h_0', '-12_h_0', '0_h_0', '12_h_0', '24_h_0']].max().max())
     y_lim = (df[['-48_h_1', '-36_h_1', '-24_h_1', '-12_h_1', '0_h_1', '12_h_1', '24_h_1']].min().min(),
              df[['-48_h_1', '-36_h_1', '-24_h_1', '-12_h_1', '0_h_1', '12_h_1', '24_h_1']].max().max())
-    print(x_lim, y_lim)
+
     df = df[:36]
     df = df.sort_values(by="index")
     wildfire = WildFireDataset(load_records=df["index"].to_numpy())

@@ -10,6 +10,7 @@ from pyro.optim import Adam
 from torch.utils.data import DataLoader
 
 from dataset import VIIRSDataset
+from src.utils import beta_to_mean_std
 from src.vae_plots import plot_trajectory
 from src.vae_plots import viirs_tsne, plot_llk_viirs
 from src.vae_viirs import VAE
@@ -57,13 +58,16 @@ def main(args):
                 viirs = viirs.cuda()
                 diurnal = diurnal.cuda()
             # do ELBO gradient and accumulate loss
-            epoch_loss += svi.step(viirs)
+            epoch_loss += svi.step(viirs, diurnal)
 
         # report training diagnostics
         normalizer_train = len(train_loader.dataset)
         total_epoch_loss_train = epoch_loss / normalizer_train
         train_elbo.append(total_epoch_loss_train)
         print("[epoch %03d]  average training loss: %.4f" % (epoch, total_epoch_loss_train))
+        alpha, beta = pyro.param("alpha_q").item(), pyro.param("beta_q").item()
+        mean, std = beta_to_mean_std(alpha, beta)
+        print(f"Diurnal mean = {mean:.3f}+/-{std:.2f}  {alpha:.2f} {beta:.2f}")
 
         if epoch == args.tsne_iter:
             viirs_tsne(vae=vae, data_loader=train_loader)
@@ -85,7 +89,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="parse args")
     parser.add_argument('--load-records', default=100, type=int, help='number of record to load')
     parser.add_argument('-n', '--num-epochs', default=epoch + 1, type=int, help='number of training epochs')
-    parser.add_argument('-lr', '--learning-rate', default=1.0e-4, type=float, help='learning rate')
+    parser.add_argument('-lr', '--learning-rate', default=1.0e-2, type=float, help='learning rate')
     parser.add_argument('--cuda', action='store_true', default=True, help='whether to use cuda')
     parser.add_argument('--jit', action='store_true', default=False, help='whether to use PyTorch jit')
     parser.add_argument('-visdom', '--visdom_flag', action="store_true", help='Whether plotting in visdom is desired')

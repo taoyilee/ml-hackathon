@@ -63,7 +63,7 @@ def test_zero(idx):
 def test_dtype():
     viirs_data_loader = VIIRSDataset(load_records=100)
     assert viirs_data_loader[0].viirs.dtype == np.float32
-    assert viirs_data_loader[0].diurnal.dtype == np.int
+    assert viirs_data_loader[0].diurnal.dtype == np.float32
 
 
 def test_x_shape():
