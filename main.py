@@ -20,6 +20,16 @@ if __name__ == "__main__":
     min_af = config["vae-training"].getfloat("min_af")
     annealing_epochs = config["vae-training"].getint("annealing_epochs")
     n_samples = config["vae-training"].getint("n_samples")
+
+    dropout_rate = config["vae-training"].getfloat("dropout_rate")
+    rnn_dim = config["vae-training"].getint("rnn_dim")
+    rnn_layers = config["vae-training"].getint("rnn_layers")
+    num_iafs = config["vae-training"].getint("num_iafs")
+    iaf_dim = config["vae-training"].getint("iaf_dim")
+    transition_dim = config["vae-training"].getint("transition_dim")
+    channel = config["vae-training"].getint("channel")
+    init_lr = config["vae-training"].getfloat("init_lr")
+
     pyro.clear_param_store()
 
     # Seed randomness for repeatability
@@ -35,7 +45,8 @@ if __name__ == "__main__":
     vae_results.mkdir(exist_ok=True)
 
     wildfire_dataset = WildFireData(config["DEFAULT"]["train_set"], n_samples)
-    vae = VAE(z_dim=z_dim)
+    vae = VAE(z_dim=z_dim, image_dim=(30, 30), dropout_rate=dropout_rate, rnn_dim=rnn_dim, rnn_layers=rnn_layers,
+              num_iafs=num_iafs, iaf_dim=iaf_dim, transition_dim=transition_dim, channel=channel, init_lr=init_lr)
 
     svi = SVI(vae.model, vae.guide, vae.optimizer, loss=Trace_ELBO())
     elbo_loss_log = []
@@ -54,11 +65,11 @@ if __name__ == "__main__":
         elbo_loss_log.append(mean_loss)
         alpha.append(pyro.param("alpha").item())
         beta.append(pyro.param("beta").item())
+        inferred_mean, inferred_std = beta_to_mean_std(alpha[-1], beta[-1])
+        mean.append(inferred_mean)
+        std.append(inferred_std)
         if (step + 1) % 200 == 0:
-            inferred_mean, inferred_std = beta_to_mean_std(alpha[-1], beta[-1])
-            mean.append(inferred_mean)
-            std.append(inferred_std)
-            print(f"[Iter {step + 1:05d}] af = {annealing_factor:.2f} ELBO: {elbo_loss_log[-1] :.3f}"
+            print(f"[Iter {step + 1:05d}] af = {annealing_factor:.2f} ELBO: {-elbo_loss_log[-1] :.3f}"
                   f" diurnality: {inferred_mean * 100:.2f} +/- {100 * inferred_std:.2f} %"
                   f" alpha = {alpha[-1]:.2f}; beta = {beta[-1]:.2f} ")
 

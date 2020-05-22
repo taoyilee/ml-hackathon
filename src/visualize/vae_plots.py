@@ -37,20 +37,24 @@ def get_latent(vae: "VAE", wildfire_dataset: "WildFireData"):
 
 def plot_latent(vae: "VAE", vae_results, wildfire_dataset: "WildFireData"):
     z_loc, z_scale = get_latent(vae, wildfire_dataset)
-    z_embed = z_loc[4].detach().cpu().numpy()
-    x_lim = (z_embed[:, 0].min(), z_embed[:, 0].max())
-    y_lim = (z_embed[:, 1].min(), z_embed[:, 1].max())
-    plt.figure()
     diurnality = wildfire_dataset.diurnality.cpu().numpy()
-    plt.scatter(z_embed[diurnality == 1, 0], z_embed[diurnality == 1, 1], s=20, color=f"C0", label="day")
-    plt.scatter(z_embed[diurnality == 0, 0], z_embed[diurnality == 0, 1], s=20, color=f"C1", label="night")
-    plt.legend(loc=1)
-    plt.grid(True)
-    plt.xlim(x_lim)
-    plt.ylim(y_lim)
-    plt.tight_layout()
-    plt.savefig(vae_results / "latent_space.png")
-    plt.close()
+    for i, (zl, zs) in enumerate(zip(z_loc, z_scale)):
+        z_embed = zl.detach().cpu().numpy()
+        day = z_embed[diurnality == 1]
+        night = z_embed[diurnality == 0]
+        plt.figure(figsize=(21, 6))
+        for j in range(z_embed.shape[1]):
+            plt.subplot(1, z_embed.shape[1], j + 1)
+            plt.hist(day[:, j], color=f"C0", label="day")
+            plt.hist(night[:, j], color=f"C1", label="night")
+            plt.legend(loc=1)
+            plt.grid(True)
+            plt.gca().get_xaxis().set_ticklabels([])
+            plt.gca().get_yaxis().set_ticklabels([])
+
+        plt.subplots_adjust(wspace=0, left=0.01, right=0.99)
+        plt.savefig(vae_results / f"latent_space_T{i:02d}.png")
+        plt.close()
 
 
 def plot_tsne(vae: "VAE", vae_results, wildfire_dataset: "WildFireData"):
