@@ -85,8 +85,9 @@ class ConvRNN(nn.Module):
 
     def forward(self, viirs_observed, hidden_state, cell_state=None):
         # viirs_observed: (batch, time, w, h)
-        assert viirs_observed.dim() == 4, f"viirs_observed.dim() = {viirs_observed.dim()} != 4"
-        assert viirs_observed.shape[2:] == self.image_dim
+        assert viirs_observed.dim() == 4, f"viirs_observed.dim() = dim({viirs_observed.shape}) != 4"
+        assert viirs_observed.shape[2:] == tuple(self.image_dim), \
+            f"viirs_observed.shape[2:] = {viirs_observed.shape[2:]} != {self.image_dim}"
         assert viirs_observed.shape[1] in [5, 7]
         # process backwards in time
         viirs_observed = torch.flip(viirs_observed, dims=[1])

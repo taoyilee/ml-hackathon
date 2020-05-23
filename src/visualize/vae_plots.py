@@ -4,10 +4,13 @@
 import numpy as np
 from matplotlib import pyplot as plt
 
-from src.data.wildfire import WildFireData
+from src import logger
+from src.data import WildFireDataset
 from src.vae import VAE
 
 mapping = {0: -48, 1: -36, 2: -24, 3: -12, 4: 0, 5: 12, 6: 24}
+
+import torch
 
 
 def plot_observation(vae_results, indexes, observation, label, n=10):
@@ -30,21 +33,18 @@ def plot_observation(vae_results, indexes, observation, label, n=10):
             plt.figure(figsize=(n * 1.8, n * 1.8))
 
 
-def get_latent(vae: "VAE", wildfire_dataset: "WildFireData"):
-    z_loc, z_scale = vae.encode(wildfire_dataset.diurnality, wildfire_dataset.viirs)
-    return z_loc, z_scale
+def plot_latent(z_loc, vae_results, wildfire_dataset: "WildFireDataset"):
+    t_max = z_loc.shape[1]
+    features = z_loc.shape[2]
+    logger.info(f"Plotting laetent space")
 
-
-def plot_latent(vae: "VAE", vae_results, wildfire_dataset: "WildFireData"):
-    z_loc, z_scale = get_latent(vae, wildfire_dataset)
-    diurnality = wildfire_dataset.diurnality.cpu().numpy()
-    for i, (zl, zs) in enumerate(zip(z_loc, z_scale)):
-        z_embed = zl.detach().cpu().numpy()
-        day = z_embed[diurnality == 1]
-        night = z_embed[diurnality == 0]
+    diurnality = wildfire_dataset[:].diurnality
+    for time_step in range(t_max):
+        day = z_loc[diurnality == 1, time_step, :]
+        night = z_loc[diurnality == 0, time_step, :]
         plt.figure(figsize=(21, 6))
-        for j in range(z_embed.shape[1]):
-            plt.subplot(1, z_embed.shape[1], j + 1)
+        for j in range(features):
+            plt.subplot(1, features, j + 1)
             plt.hist(day[:, j], color=f"C0", label="day")
             plt.hist(night[:, j], color=f"C1", label="night")
             plt.legend(loc=1)
@@ -53,27 +53,44 @@ def plot_latent(vae: "VAE", vae_results, wildfire_dataset: "WildFireData"):
             plt.gca().get_yaxis().set_ticklabels([])
 
         plt.subplots_adjust(wspace=0, left=0.01, right=0.99)
-        plt.savefig(vae_results / f"latent_space_T{i:02d}.png")
+        plt.savefig(vae_results / f"latent_space_T{time_step:02d}.png")
         plt.close()
 
 
-def plot_tsne(vae: "VAE", vae_results, wildfire_dataset: "WildFireData"):
-    z_loc, z_scale = get_latent(vae, wildfire_dataset)
+def plot_tsne(z_loc, vae_results, wildfire_dataset: "WildFireDataset", max_samples=1000):
     from sklearn.manifold import TSNE
     model_tsne = TSNE(n_components=2, random_state=0)
 
-    z_loc = [z.detach().cpu().numpy() for z in z_loc]
-    batch_size = z_loc[0].shape[0]
-    z_loc = np.concatenate(z_loc)
+    batch_size = z_loc.shape[0]
+    logger.info(f"Size of the dataset: {batch_size}")
+    diurnality = wildfire_dataset[:].diurnality
+    if batch_size > max_samples:
+        logger.info(f"Randomly subsample dataset to {max_samples} samples")
+        batch_size = max_samples
+        selected = np.arange(batch_size)
+        np.random.shuffle(selected)
+        selected = selected[:batch_size]
+        selected.sort()
+        z_loc = z_loc[selected, :, :]
+        diurnality = diurnality[selected]
+    logger.debug(f"z_loc shape {z_loc.shape}")
+    logger.debug(f"diurnality shape {diurnality.shape}")
+
+    z_loc = z_loc.reshape(-1, 10)
+    logger.info(f"Fitting t-SNE model with z_loc (shape: {z_loc.shape})")
     z_embed = model_tsne.fit_transform(z_loc)
-    plt.figure(figsize=(20, 4))
     x_lim = (z_embed[:, 0].min(), z_embed[:, 0].max())
     y_lim = (z_embed[:, 1].min(), z_embed[:, 1].max())
-    diurnality = wildfire_dataset.diurnality.cpu().numpy()
 
-    for i in range(7):
+    z_embed = z_embed.reshape(batch_size, 7, 2).swapaxes(0, 1)
+    logger.debug(f"z_embed shape {z_embed.shape}")
+    plt.figure(figsize=(20, 4))
+
+    logger.info(f"Plotting t-SNE")
+    for i, zi in enumerate(z_embed):
         plt.subplot(1, 7, i + 1)
-        zi = z_embed[batch_size * i:batch_size * (i + 1), :]
+        logger.debug(f"zi shape {zi.shape}")
+
         plt.scatter(zi[diurnality == 1, 0], zi[diurnality == 1, 1], s=10, color=f"C0", label="day")
         plt.scatter(zi[diurnality == 0, 0], zi[diurnality == 0, 1], s=10, color=f"C1", label="night")
         plt.scatter(zi[diurnality == 1, 0][5], zi[diurnality == 1, 1][5], s=80, marker="s", color=f"red")
@@ -104,21 +121,36 @@ def plot_epoch(vae_results, data, name, ylim=None):
     plt.close()
 
 
-def plot_forecast(vae: "VAE", vae_results, wildfire_dataset: "WildFireData"):
+def plot_forecast(vae: "VAE", vae_results, wildfire_dataset: "WildFireDataset", data_loader, max_samples=100):
+    logger.info(f"Plotting forecasts")
     from matplotlib import rc
+    from src.data.dataset import _ct
+    batch_size = len(wildfire_dataset)
     rc('text', usetex=True)
+    f_12, f_24 = None, None
+    with torch.no_grad():
+        for d in data_loader:
+            if f_12 is None:
+                f_12, f_24 = vae.forecast(_ct(d.diurnality), _ct(d.viirs[:, :5, :, :]))
+            else:
+                f_12_i, f_24_i = vae.forecast(_ct(d.diurnality), _ct(d.viirs[:, :5, :, :]))
+                f_12 = np.concatenate((f_12, f_12_i), axis=0)
+                f_24 = np.concatenate((f_24, f_24_i), axis=0)
+    selected = slice(None)
+    if batch_size > max_samples:
+        logger.info(f"Randomly subsample dataset to {max_samples} samples")
+        batch_size = max_samples
+        selected = np.arange(batch_size)
+        np.random.shuffle(selected)
+        selected = selected[:batch_size]
+        selected.sort()
 
-    f_12, f_24 = vae.forecast(wildfire_dataset.diurnality, wildfire_dataset.viirs[:, :5, :, :])
-    f_12 = f_12.cpu().detach().numpy().reshape(-1, 30, 30)
-    f_24 = f_24.cpu().detach().numpy().reshape(-1, 30, 30)
-
-    viirs = wildfire_dataset.viirs.cpu().numpy()
-    for i, idx in enumerate(wildfire_dataset.indexes):
+    for i, idx in enumerate(wildfire_dataset[selected].index):
         plt.figure(figsize=(12, 6))
         for j in range(7):
             plt.subplot(2, 7, j + 1)
             plt.title(f'# {idx}')
-            plt.imshow(viirs[i, j, :, :])
+            plt.imshow(wildfire_dataset[i].viirs[j, :, :])
             plt.axis('off')
             plt.title(f"{mapping[j]} hr" + r" $Y$")
 

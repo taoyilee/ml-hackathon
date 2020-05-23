@@ -1,3 +1,4 @@
+import numpy as np
 import pyro
 import pyro.distributions as dist
 import pyro.poutine as poutine
@@ -12,32 +13,46 @@ from src.decoder import Decoder
 from src.encoder import GatedTransition, Combiner, ConvRNN
 
 
-class VAE(nn.Module):
-
+class VAEConfig:
     def __init__(self, z_dim=10, image_dim=(30, 30), dropout_rate=0.2, rnn_dim=200, rnn_layers=1, num_iafs=0,
                  iaf_dim=50, transition_dim=200, channel=16, init_lr=1e-3, use_lstm=False):
-        super().__init__()
-        self.image_flatten_dim = image_dim[0] * image_dim[1]
-
-        adam_params = {"lr": init_lr, "betas": (0.96, 0.999), "clip_norm": 10.0, "lrd": 0.99996, "weight_decay": 2.0}
-        self.optimizer = ClippedAdam(adam_params)
-        self.use_lstm = use_lstm
         self.z_dim = z_dim
+        self.image_dim = image_dim
+        self.dropout_rate = dropout_rate
+        self.rnn_dim = rnn_dim
+        self.rnn_layers = rnn_layers
+        self.num_iafs = num_iafs
+        self.iaf_dim = iaf_dim
+        self.transition_dim = transition_dim
         self.channel = channel
-        self.dropout_p = dropout_rate
-        self.emitter = Decoder(self.z_dim, self.channel, dropout_p=self.dropout_p)
-        self.trans = GatedTransition(z_dim, transition_dim)
-        self.combiner = Combiner(z_dim, rnn_dim)
+        self.init_lr = init_lr
+        self.use_lstm = use_lstm
 
-        self.crnn = ConvRNN(image_dim, rnn_dim, rnn_layers, dropout_rate, use_lstm=self.use_lstm, channels=self.channel)
-        self.iafs = [affine_autoregressive(z_dim, hidden_dims=[iaf_dim]) for _ in range(num_iafs)]
+
+class VAE(nn.Module):
+
+    def __init__(self, _c: "VAEConfig"):
+        super().__init__()
+        self._c = _c
+        self.image_flatten_dim = _c.image_dim[0] * _c.image_dim[1]
+
+        adam_params = {"lr": _c.init_lr, "betas": (0.96, 0.999), "clip_norm": 10.0, "lrd": 0.99996, "weight_decay": 2.0}
+        self.optimizer = ClippedAdam(adam_params)
+
+        self.emitter = Decoder(_c.z_dim, _c.channel, dropout_p=_c.dropout_rate)
+        self.trans = GatedTransition(_c.z_dim, _c.transition_dim)
+        self.combiner = Combiner(_c.z_dim, _c.rnn_dim)
+
+        self.crnn = ConvRNN(_c.image_dim, _c.rnn_dim, _c.rnn_layers, _c.dropout_rate, use_lstm=_c.use_lstm,
+                            channels=_c.channel)
+        self.iafs = [affine_autoregressive(_c.z_dim, hidden_dims=[_c.iaf_dim]) for _ in range(_c.num_iafs)]
         self.iafs_modules = nn.ModuleList(self.iafs)
 
-        self.z_0 = nn.Parameter(torch.zeros(z_dim))
-        self.z_q_0 = nn.Parameter(torch.zeros(z_dim))
-        self.h_0 = nn.Parameter(torch.zeros(1, 1, rnn_dim))
-        if self.use_lstm:
-            self.c_0 = nn.Parameter(torch.zeros(1, 1, rnn_dim))
+        self.z_0 = nn.Parameter(torch.zeros(_c.z_dim))
+        self.z_q_0 = nn.Parameter(torch.zeros(_c.z_dim))
+        self.h_0 = nn.Parameter(torch.zeros(1, 1, _c.rnn_dim))
+        if _c.use_lstm:
+            self.c_0 = nn.Parameter(torch.zeros(1, 1, _c.rnn_dim))
         self.cuda()
 
     def model(self, diurnality, viirs_observed, annealing_factor=1.0):
@@ -81,7 +96,7 @@ class VAE(nn.Module):
 
     def rnn_state_contig(self, batch_size):
         h_0_contig = self.h_0.expand(1, batch_size, self.crnn.hidden_size).contiguous()
-        c_0_contig = self.c_0.expand(1, batch_size, self.crnn.hidden_size).contiguous() if self.use_lstm else None
+        c_0_contig = self.c_0.expand(1, batch_size, self.crnn.hidden_size).contiguous() if self._c.use_lstm else None
         return c_0_contig, h_0_contig
 
     def sample_latent_space(self, annealing_factor, batch_size, t, z_loc_q, z_scale_q):
@@ -103,11 +118,10 @@ class VAE(nn.Module):
         return z_t
 
     def encode(self, diurnality, viirs_observed):
+        self.eval()
+
         T_max = viirs_observed.size(1)
         batch_size = diurnality.shape[0]
-        self.crnn.eval()
-        self.emitter.eval()
-        self.trans.eval()
 
         c_0_contig, h_0_contig = self.rnn_state_contig(batch_size)
 
@@ -122,7 +136,7 @@ class VAE(nn.Module):
                 z_scale.append(z_scale_q)
                 z_prev = self.sample_latent_space(1.0, batch_size, t, z_loc_q, z_scale_q)
 
-        return z_loc, z_scale
+        return np.array([z.cpu().numpy() for z in z_loc]), np.array([z.cpu().numpy() for z in z_scale])
 
     def forecast(self, diurnality, viirs_observed):
         assert viirs_observed.shape[1:] == (5, 30, 30), \
@@ -130,9 +144,7 @@ class VAE(nn.Module):
         T_max = viirs_observed.size(1)
         batch_size = diurnality.shape[0]
         diurnality = diurnality.long()
-        self.crnn.eval()
-        self.emitter.eval()
-        self.trans.eval()
+        self.eval()
 
         c_0_contig, h_0_contig = self.rnn_state_contig(batch_size)
         rnn_output = self.crnn(viirs_observed, h_0_contig, c_0_contig)
@@ -151,5 +163,5 @@ class VAE(nn.Module):
     def forecast_next_step(self, diurnality, z_prev):
         z_loc, z_scale = self.trans(z_prev)
         z_prev = dist.Normal(z_loc[diurnality, :], z_scale[diurnality, :])()
-        forecast = self.emitter(z_prev)
+        forecast = self.emitter(z_prev).cpu().detach().reshape(-1, 30, 30)
         return forecast, z_prev
