@@ -40,8 +40,8 @@ writer = SummaryWriter("logs/%s" % args.dataset_name)
 cuda = True if torch.cuda.is_available() else False
 
 # Loss functions
-# criterion_GAN = torch.nn.MSELoss(reduction='none')
-criterion_GAN = torch.nn.BCEWithLogitsLoss(reduction='none')
+criterion_GAN = torch.nn.MSELoss(reduction='none')
+# criterion_GAN = torch.nn.BCEWithLogitsLoss(reduction='none')
 
 # criterion_pixelwise = torch.nn.MSELoss(reduction='none')
 criterion_pixelwise = torch.nn.BCEWithLogitsLoss(reduction='none', pos_weight=torch.full((30, 30), 10))
