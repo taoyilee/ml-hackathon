@@ -5,23 +5,44 @@ from torch import nn as nn
 
 class GatedTransition(nn.Module):
 
-    def __init__(self, z_dim, transition_dim):
+    def __init__(self, z_dim, transition_dim, dropout_rate=0.0, channels=8):
         super().__init__()
 
-        self.lin_gate_z_to_hidden = nn.Linear(z_dim, transition_dim)
+        self.lin_gate_z_to_hidden = nn.Linear(z_dim + channels, transition_dim)
         self.lin_gate_hidden_to_z = nn.Linear(transition_dim, z_dim)
-        self.lin_proposed_mean_z_to_hidden = nn.Linear(z_dim, transition_dim)
+        self.lin_proposed_mean_z_to_hidden = nn.Linear(z_dim + channels, transition_dim)
         self.lin_proposed_mean_hidden_to_z = nn.Linear(transition_dim, z_dim)
         self.lin_sig = nn.Linear(z_dim, z_dim)
-        self.lin_z_to_loc = nn.Linear(z_dim, z_dim)
+        self.lin_z_to_loc = nn.Linear(z_dim + channels, z_dim)
 
-        self.lin_z_to_loc.weight.data = torch.eye(z_dim)
-        self.lin_z_to_loc.bias.data = torch.zeros(z_dim)
+        # self.lin_z_to_loc.weight.data = torch.eye(z_dim)
+        # self.lin_z_to_loc.bias.data = torch.zeros(z_dim)
 
-    def forward(self, z_t_1):
+        self.cnn_land_cover1 = nn.Sequential(
+            nn.Conv2d(17, channels, 3),
+            nn.MaxPool2d(2, 2),
+            nn.BatchNorm2d(channels),
+            nn.Dropout(p=dropout_rate),
+            nn.ReLU(inplace=True),
+        )
+
+        self.cnn_land_cover2 = nn.Sequential(
+            nn.Conv2d(channels, channels, 3),
+            nn.MaxPool2d(2, 2),
+            nn.BatchNorm2d(channels),
+            nn.Dropout(p=dropout_rate),
+            nn.ReLU(inplace=True),
+        )
+        self.global_max_pooling = nn.MaxPool2d(kernel_size=(4, 4))
+
+    def forward(self, z_t_1, land_cover):
+        z_lc = self.cnn_land_cover1(land_cover)
+        z_lc = self.cnn_land_cover2(z_lc)
+        z_lc = self.global_max_pooling(z_lc).squeeze()
+
+        z_t_1 = torch.cat((z_t_1, z_lc), dim=1)
         _gate = torch.relu(self.lin_gate_z_to_hidden(z_t_1))
         gate = torch.sigmoid(self.lin_gate_hidden_to_z(_gate))
-
         _proposed_mean = torch.relu(self.lin_proposed_mean_z_to_hidden(z_t_1))
         proposed_mean = self.lin_proposed_mean_hidden_to_z(_proposed_mean)
         loc = (1 - gate) * self.lin_z_to_loc(z_t_1) + gate * proposed_mean

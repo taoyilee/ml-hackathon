@@ -15,7 +15,7 @@ from src.encoder import GatedTransition, Combiner, ConvRNN
 
 class VAEConfig:
     def __init__(self, z_dim=10, image_dim=(30, 30), dropout_rate=0.2, rnn_dim=200, rnn_layers=1, num_iafs=0,
-                 iaf_dim=50, transition_dim=200, channel=16, init_lr=1e-3, use_lstm=False):
+                 iaf_dim=50, transition_dim=200, crnn_channel=16, emitter_channel=16, init_lr=1e-3, use_lstm=False):
         self.z_dim = z_dim
         self.image_dim = image_dim
         self.dropout_rate = dropout_rate
@@ -24,7 +24,9 @@ class VAEConfig:
         self.num_iafs = num_iafs
         self.iaf_dim = iaf_dim
         self.transition_dim = transition_dim
-        self.channel = channel
+        self.crnn_channel = crnn_channel
+        self.emitter_channel = emitter_channel
+
         self.init_lr = init_lr
         self.use_lstm = use_lstm
 
@@ -39,12 +41,12 @@ class VAE(nn.Module):
         adam_params = {"lr": _c.init_lr, "betas": (0.96, 0.999), "clip_norm": 10.0, "lrd": 0.99996, "weight_decay": 2.0}
         self.optimizer = ClippedAdam(adam_params)
 
-        self.emitter = Decoder(_c.z_dim, _c.channel, dropout_p=_c.dropout_rate)
+        self.emitter = Decoder(_c.z_dim, _c.emitter_channel, dropout_p=_c.dropout_rate)
         self.trans = GatedTransition(_c.z_dim, _c.transition_dim)
         self.combiner = Combiner(_c.z_dim, _c.rnn_dim)
 
-        self.crnn = ConvRNN(_c.image_dim, _c.rnn_dim, _c.rnn_layers, _c.dropout_rate, use_lstm=_c.use_lstm,
-                            channels=_c.channel)
+        self.crnn = ConvRNN(_c.image_dim, _c.rnn_dim, _c.rnn_layers, _c.dropout_rate,
+                            use_lstm=_c.use_lstm, channels=_c.crnn_channel)
         self.iafs = [affine_autoregressive(_c.z_dim, hidden_dims=[_c.iaf_dim]) for _ in range(_c.num_iafs)]
         self.iafs_modules = nn.ModuleList(self.iafs)
 
@@ -55,7 +57,8 @@ class VAE(nn.Module):
             self.c_0 = nn.Parameter(torch.zeros(1, 1, _c.rnn_dim))
         self.cuda()
 
-    def model(self, diurnality, viirs_observed, annealing_factor=1.0):
+    def model(self, diurnality, viirs_observed, land_cover, latitude, longitude, meteorology, annealing_factor=1.0):
+        # land_cover.shape: [128, 17, 30, 30]
         pyro.module("vae", self)
         batch_size = diurnality.shape[0]
         T_max = viirs_observed.size(1)
@@ -67,7 +70,7 @@ class VAE(nn.Module):
         with pyro.plate("data", batch_size):
             diurnal_ = pyro.sample("diurnal_", dist.Bernoulli(diurnal_ratio), obs=diurnality).long()
             for t in pyro.markov(range(1, T_max + 1)):
-                z_loc, z_scale = self.trans(z_prev)
+                z_loc, z_scale = self.trans(z_prev, land_cover)
                 with poutine.scale(scale=annealing_factor):
                     z_t = pyro.sample(f"z_{t}", dist.Normal(z_loc[diurnal_, :], z_scale[diurnal_, :]).to_event(1))
                 image_p = self.emitter(z_t)
@@ -76,7 +79,7 @@ class VAE(nn.Module):
                 z_prev = z_t
             return image_p, image
 
-    def guide(self, diurnality, viirs_observed, annealing_factor=1.0):
+    def guide(self, diurnality, viirs_observed, land_cover, latitude, longitude, meteorology, annealing_factor=1.0):
         T_max = viirs_observed.size(1)
         batch_size = diurnality.shape[0]
         pyro.module("vae", self)
@@ -138,7 +141,7 @@ class VAE(nn.Module):
 
         return np.array([z.cpu().numpy() for z in z_loc]), np.array([z.cpu().numpy() for z in z_scale])
 
-    def forecast(self, diurnality, viirs_observed):
+    def forecast(self, diurnality, viirs_observed, land_cover, latitude, longitude, meteorology):
         assert viirs_observed.shape[1:] == (5, 30, 30), \
             f"viirs_observed.shape[1:] = {viirs_observed.shape[1:]} != (5, 30, 30)"
         T_max = viirs_observed.size(1)
@@ -155,13 +158,13 @@ class VAE(nn.Module):
                 z_loc_q, z_scale_q = self.combiner(z_prev, rnn_output[:, t - 1, :], diurnality)
                 z_prev = self.sample_latent_space(1.0, batch_size, t, z_loc_q, z_scale_q)
 
-        forecast_12, z_prev = self.forecast_next_step(diurnality, z_prev)
-        forecast_24, _ = self.forecast_next_step(diurnality, z_prev)
+        forecast_12, z_prev = self.forecast_next_step(diurnality, land_cover, latitude, longitude, meteorology, z_prev)
+        forecast_24, _ = self.forecast_next_step(diurnality, land_cover, latitude, longitude, meteorology, z_prev)
 
         return forecast_12, forecast_24
 
-    def forecast_next_step(self, diurnality, z_prev):
-        z_loc, z_scale = self.trans(z_prev)
+    def forecast_next_step(self, diurnality, land_cover, latitude, longitude, meteorology, z_prev):
+        z_loc, z_scale = self.trans(z_prev, land_cover)
         z_prev = dist.Normal(z_loc[diurnality, :], z_scale[diurnality, :])()
         forecast = self.emitter(z_prev).cpu().detach().reshape(-1, 30, 30)
         return forecast, z_prev

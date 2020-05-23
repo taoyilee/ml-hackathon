@@ -34,11 +34,12 @@ def plot_observation(vae_results, indexes, observation, label, n=10):
 
 
 def plot_latent(z_loc, vae_results, wildfire_dataset: "WildFireDataset"):
+    batch_size = z_loc.shape[0]
     t_max = z_loc.shape[1]
     features = z_loc.shape[2]
     logger.info(f"Plotting laetent space")
 
-    diurnality = wildfire_dataset[:].diurnality
+    diurnality = wildfire_dataset[:batch_size].diurnality
     for time_step in range(t_max):
         day = z_loc[diurnality == 1, time_step, :]
         night = z_loc[diurnality == 0, time_step, :]
@@ -57,15 +58,15 @@ def plot_latent(z_loc, vae_results, wildfire_dataset: "WildFireDataset"):
         plt.close()
 
 
-def plot_tsne(z_loc, vae_results, wildfire_dataset: "WildFireDataset", max_samples=1000):
+def plot_tsne(z_loc, wildfire_dataset: "WildFireDataset", max_samples=1000):
     from sklearn.manifold import TSNE
     model_tsne = TSNE(n_components=2, random_state=0)
 
     batch_size = z_loc.shape[0]
-    logger.info(f"Size of the dataset: {batch_size}")
+    logger.debug(f"Size of the dataset: {batch_size}")
     diurnality = wildfire_dataset[:].diurnality
     if batch_size > max_samples:
-        logger.info(f"Randomly subsample dataset to {max_samples} samples")
+        logger.debug(f"Randomly subsample dataset to {max_samples} samples")
         batch_size = max_samples
         selected = np.arange(batch_size)
         np.random.shuffle(selected)
@@ -77,7 +78,7 @@ def plot_tsne(z_loc, vae_results, wildfire_dataset: "WildFireDataset", max_sampl
     logger.debug(f"diurnality shape {diurnality.shape}")
 
     z_loc = z_loc.reshape(-1, 10)
-    logger.info(f"Fitting t-SNE model with z_loc (shape: {z_loc.shape})")
+    logger.debug(f"Fitting t-SNE model with z_loc (shape: {z_loc.shape})")
     z_embed = model_tsne.fit_transform(z_loc)
     x_lim = (z_embed[:, 0].min(), z_embed[:, 0].max())
     y_lim = (z_embed[:, 1].min(), z_embed[:, 1].max())
@@ -86,7 +87,7 @@ def plot_tsne(z_loc, vae_results, wildfire_dataset: "WildFireDataset", max_sampl
     logger.debug(f"z_embed shape {z_embed.shape}")
     plt.figure(figsize=(20, 4))
 
-    logger.info(f"Plotting t-SNE")
+    logger.debug(f"Plotting t-SNE")
     for i, zi in enumerate(z_embed):
         plt.subplot(1, 7, i + 1)
         logger.debug(f"zi shape {zi.shape}")
@@ -104,8 +105,6 @@ def plot_tsne(z_loc, vae_results, wildfire_dataset: "WildFireDataset", max_sampl
         plt.gca().get_yaxis().set_ticklabels([])
 
     plt.subplots_adjust(wspace=0, left=0.01, right=0.99)
-    plt.savefig(vae_results / "tsne.png")
-    plt.close()
 
 
 def plot_epoch(vae_results, data, name, ylim=None):
@@ -126,24 +125,29 @@ def plot_forecast(vae: "VAE", vae_results, wildfire_dataset: "WildFireDataset", 
     from matplotlib import rc
     from src.data.dataset import _ct
     batch_size = len(wildfire_dataset)
+    logger.info(f"batch_size: {batch_size}")
     rc('text', usetex=True)
     f_12, f_24 = None, None
     with torch.no_grad():
         for d in data_loader:
             if f_12 is None:
-                f_12, f_24 = vae.forecast(_ct(d.diurnality), _ct(d.viirs[:, :5, :, :]))
+                f_12, f_24 = vae.forecast(_ct(d.diurnality), _ct(d.viirs[:, :5, :, :]), _ct(d.land_cover),
+                                          _ct(d.latitude), _ct(d.longitude), _ct(d.meteorology))
             else:
-                f_12_i, f_24_i = vae.forecast(_ct(d.diurnality), _ct(d.viirs[:, :5, :, :]))
+                f_12_i, f_24_i = vae.forecast(_ct(d.diurnality), _ct(d.viirs[:, :5, :, :]), _ct(d.land_cover),
+                                              _ct(d.latitude), _ct(d.longitude), _ct(d.meteorology))
                 f_12 = np.concatenate((f_12, f_12_i), axis=0)
                 f_24 = np.concatenate((f_24, f_24_i), axis=0)
+            if f_12.shape[0] > max_samples:
+                break
     selected = slice(None)
     if batch_size > max_samples:
         logger.info(f"Randomly subsample dataset to {max_samples} samples")
-        batch_size = max_samples
         selected = np.arange(batch_size)
         np.random.shuffle(selected)
-        selected = selected[:batch_size]
+        selected = selected[:max_samples]
         selected.sort()
+    logger.info(f"Selected index {selected}")
 
     for i, idx in enumerate(wildfire_dataset[selected].index):
         plt.figure(figsize=(12, 6))
