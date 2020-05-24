@@ -105,7 +105,8 @@ class ConvRNN(nn.Module):
         self.dropout2 = nn.Dropout(p=dropout_rate)
 
     def forward(self, viirs_observed, hidden_state, cell_state=None):
-        # viirs_observed: (batch, time, w, h)
+        # viirs_observed: (batch, 7, 1, w, h)
+        # CNN: (batch, 1, w, h)
         assert viirs_observed.dim() == 4, f"viirs_observed.dim() = dim({viirs_observed.shape}) != 4"
         assert viirs_observed.shape[2:] == tuple(self.image_dim), \
             f"viirs_observed.shape[2:] = {viirs_observed.shape[2:]} != {self.image_dim}"

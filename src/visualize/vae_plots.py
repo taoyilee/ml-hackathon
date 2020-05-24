@@ -1,16 +1,15 @@
 # Copyright (c) 2017-2019 Uber Technologies, Inc.
 # SPDX-License-Identifier: Apache-2.0
 
+from pathlib import Path
+
 import numpy as np
 from matplotlib import pyplot as plt
 
 from src import logger
 from src.data import WildFireDataset
-from src.vae import VAE
 
 mapping = {0: -48, 1: -36, 2: -24, 3: -12, 4: 0, 5: 12, 6: 24}
-
-import torch
 
 
 def plot_observation(vae_results, indexes, observation, label, n=10):
@@ -120,35 +119,48 @@ def plot_epoch(vae_results, data, name, ylim=None):
     plt.close()
 
 
-def plot_forecast(vae: "VAE", vae_results, wildfire_dataset: "WildFireDataset", data_loader, max_samples=100):
+def eval_jaccard(f_12, f_24, viirs_12, viirs_24, threshold=0.5):
+    from sklearn.metrics import jaccard_score
+    def _iou(y_true, y_pred):
+        y_pred = (y_pred > threshold).astype(int)
+        y_true = y_true.astype(int)
+        assert y_true.max() == 1
+        assert y_pred.max() == 1
+        assert y_true.min() == 0
+        assert y_pred.min() == 0
+
+        return jaccard_score(y_true.reshape(-1, 900), y_pred.reshape(-1, 900), average='samples')
+
+    return _iou(viirs_12, f_12), _iou(viirs_24, f_24)
+
+
+def eval_mse(f_12, f_24, viirs_12, viirs_24):
+    def _mse(m1, m2):
+        return ((m1 - m2) ** 2).mean()
+
+    logger.info(f"f_12.shape: {f_12.shape}")
+    logger.info(f"f_24.shape: {f_24.shape}")
+    logger.info(f"viirs_12.shape: {viirs_12.shape}")
+    logger.info(f"viirs_24.shape: {viirs_24.shape}")
+    return _mse(f_12, viirs_12), _mse(f_24, viirs_24)
+
+
+def plot_forecast(f_12, f_24, output: "Path", wildfire_dataset: "WildFireDataset", max_samples=100):
+    output.mkdir(exist_ok=True)
     logger.info(f"Plotting forecasts")
     from matplotlib import rc
-    from src.data.dataset import _ct
     batch_size = len(wildfire_dataset)
-    logger.info(f"batch_size: {batch_size}")
+    logger.debug(f"batch_size: {batch_size}")
     rc('text', usetex=True)
-    f_12, f_24 = None, None
-    with torch.no_grad():
-        for d in data_loader:
-            if f_12 is None:
-                f_12, f_24 = vae.forecast(_ct(d.diurnality), _ct(d.viirs[:, :5, :, :]), _ct(d.land_cover),
-                                          _ct(d.latitude), _ct(d.longitude), _ct(d.meteorology))
-            else:
-                f_12_i, f_24_i = vae.forecast(_ct(d.diurnality), _ct(d.viirs[:, :5, :, :]), _ct(d.land_cover),
-                                              _ct(d.latitude), _ct(d.longitude), _ct(d.meteorology))
-                f_12 = np.concatenate((f_12, f_12_i), axis=0)
-                f_24 = np.concatenate((f_24, f_24_i), axis=0)
-            if f_12.shape[0] > max_samples:
-                break
+
     selected = slice(None)
     if batch_size > max_samples:
-        logger.info(f"Randomly subsample dataset to {max_samples} samples")
+        logger.debug(f"Randomly subsample dataset to {max_samples} samples")
         selected = np.arange(batch_size)
         np.random.shuffle(selected)
         selected = selected[:max_samples]
         selected.sort()
-    logger.info(f"Selected index {selected}")
-
+    logger.debug(f"Selected index {selected}")
     for i, idx in enumerate(wildfire_dataset[selected].index):
         plt.figure(figsize=(12, 6))
         for j in range(7):
@@ -171,5 +183,5 @@ def plot_forecast(vae: "VAE", vae_results, wildfire_dataset: "WildFireDataset", 
         plt.title(f"+24 hr" + r" $\hat{Y}$")
 
         plt.subplots_adjust(wspace=0.01, left=0.01, right=0.99, hspace=0.01)
-        plt.savefig(vae_results / f"forecast_{idx:05d}.png")
+        plt.savefig(output / f"forecast_{idx:05d}.png")
         plt.close()
