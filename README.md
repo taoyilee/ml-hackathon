@@ -1,3 +1,3 @@
 Youtube Presentation
 ======================
-[![IMAGE ALT TEXT HERE](https://img.youtube.com/vi/Ma4_5-IA4yw/1.jpg)](https://www.youtube.com/watch?v=Ma4_5-IA4yw)
+[![Presentation](https://img.youtube.com/vi/ftiw_-indh0/1.jpg)](https://www.youtube.com/watch?v=ftiw_-indh0)
