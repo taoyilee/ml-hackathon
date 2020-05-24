@@ -1,3 +1,5 @@
+# This code is based on https://github.com/eriklindernoren/PyTorch-GAN of eriklindernoren
+
 import torch.nn as nn
 import torch
 from torchsummary import summary
